@@ -1,0 +1,20 @@
+{
+  "name": "serveur-messenger",
+  "version": "1.0.0",
+  "description": "Serveur Socket.IO pour un chat instantanné",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "nodemon server.js"
+  },
+  "author": "Kéziah THIBO",
+  "license": "ISC",
+  "dependencies": {
+    "mongodb": "^6.2.0",
+    "socket.io": "^4.7.2"
+  },
+  "optionalDependencies": {
+    "bufferutil": "^4.0.8",
+    "utf-8-validate": "^5.0.10"
+  }
+}
