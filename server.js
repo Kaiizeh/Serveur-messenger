@@ -12,7 +12,7 @@ const dbName = "Messenger";
 
 let usersConnected = {};
 
-const addUser = (userID, socketID, roomsAllow) => usersConnected[userID] = {private: socketID, roomsAllow};
+const addUser = (userID, username, socketID, roomsAllow) => usersConnected[userID] = { username: username, private: socketID, roomsAllow };
 const removeUser = (userID) => delete usersConnected[userID];
 
 const isConnectedInRoom = (roomName, socketID) => {
@@ -30,20 +30,30 @@ async function main() {
             const user = await DB.collection('users').findOne({
                 id: userID
             });
-            if(!user) return null;
-            const rooms = await DB.collection('rooms').find({
-                id: { $in: user.roomsID }
-            }).toArray();
-            socket.emit("getRooms", rooms);
+            console.log(user);
             socket.emit("getUser", user);
 
-            addUser(userID, socket.id, user.roomsID);
+            if (!user) return null;
+            const userRoomsID = [];
+            user.rooms.forEach((room) => userRoomsID.push(room.id))
+            const rooms = await DB.collection('rooms').find({
+                id: { $in: userRoomsID }
+            }).toArray();
+            socket.emit("getRooms", rooms);
+            addUser(userID, user.name, socket.id, user.rooms);
         });
 
         //Room events
-
-        socket.on("joinRoom", (roomID) => {
+        socket.on("joinRoom", async (roomID, userID) => {
             socket.join(roomID);
+            const user = await DB.collection("users").findOne({id: userID});
+            for(let index in user.rooms) {
+                if(user.rooms[index].id === roomID) {
+                    user.rooms[index].lastCheck = new Date();
+                    user.rooms[index].hasNotification = false;
+                }
+            }
+            DB.collection("users").updateOne({id: user.id}, {$set: user}, {upsert: false});
         });
 
         socket.on("leaveRoom", (roomID) => {
@@ -53,39 +63,45 @@ async function main() {
         socket.on("createRoom", (room, users) => {
             users.forEach(user => {
                 const privateRoom = usersConnected[user.id].private;
+
                 socket.join(privateRoom);
                 socket.to(privateRoom).emit("newRoom", room);
-                DB.collection("users").findOne({id: user.id}).then(rUser => {
-                    if(!rUser) return;
-                    rUser.roomsID.push(room.id);
+                DB.collection("users").findOne({ id: user.id }).then(rUser => {
+                    if (!rUser) return;
+                    rUser.rooms.push({ id: room.id, lastCheck: null });
                     DB.collection("users").updateOne({ id: rUser.id }, { $set: rUser }, { upsert: false });
                 });
                 socket.leave(privateRoom);
             });
+            socket.emit("newRoom", room);
             DB.collection("rooms").insertOne(room);
         });
 
         //User events
-
         socket.on("createUser", async (user) => {
             await DB.collection('users').insertOne(user);
             socket.emit("getUser", user);
         });
 
+        socket.on("getUsers", async () => {
+            const users = await DB.collection("users").find().toArray();
+            socket.emit("getUsers", users);
+        });
+
         //Message events
         socket.on("sendMessage", async (message, roomID) => {
-            const room = await DB.collection('rooms').findOne({id: roomID});
-            if(!room) return null;
+            const room = await DB.collection('rooms').findOne({ id: roomID });
+            if (!room) return null;
             room.messages.unshift(message);
             room.lastUpdate = new Date();
-            await DB.collection('rooms').updateOne({id: roomID}, {$set: room}, {upsert: false});
+            await DB.collection('rooms').updateOne({ id: roomID }, { $set: room }, { upsert: false });
             socket.to(roomID).emit('receivedMessage', message);
             for (let user in usersConnected) {
-                if(!isConnectedInRoom(roomID, usersConnected[user].private)) {
+                if (!isConnectedInRoom(roomID, usersConnected[user].private)) {
                     socket.to(usersConnected[user].private).emit("notification", message, roomID);
                 }
             }
-            
+
         });
 
 
